@@ -31,7 +31,7 @@ public class MainActivity extends AppCompatActivity {
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         recyclerView.setAdapter(mAdapter);
 
-        showWelcomeDialog();
+        //showWelcomeDialog();
     }
 
     private void showWelcomeDialog() {
@@ -59,14 +59,16 @@ public class MainActivity extends AppCompatActivity {
 
         // How it should look for the end user? Uncomment if you want to see. Please note that
         // you should not use poor decor view to send messages to UI thread.
-//        getWindow().getDecorView().postDelayed(new Runnable() {
-//            @Override
-//            public void run() {
-//                final Message messageNew = message.value.copy("sample :)");
-//                final WithMillis<Message> messageNewWithMillis = new WithMillis<>(messageNew, CipherUtil.WORK_MILLIS);
-//                update(messageNewWithMillis);
-//            }
-//        }, CipherUtil.WORK_MILLIS);
+        getWindow().getDecorView().postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                //message.value.cipherText = CipherUtil.encrypt(message.value.plainText);
+                CipherUtil.encrypt(message.value.plainText);
+                final Message messageNew = message.value.copy(message.value.cipherText);
+                final WithMillis<Message> messageNewWithMillis = new WithMillis<>(messageNew, CipherUtil.WORK_MILLIS);
+                update(messageNewWithMillis);
+            }
+        }, Long.parseLong(CipherUtil.encrypt(message.value.plainText)));
     }
 
     @UiThread
