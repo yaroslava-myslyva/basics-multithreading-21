@@ -1,6 +1,9 @@
 package com.artemchep.basics_multithreading;
 
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
 import android.view.View;
 
 import androidx.annotation.UiThread;
@@ -14,13 +17,18 @@ import com.artemchep.basics_multithreading.domain.Message;
 import com.artemchep.basics_multithreading.domain.WithMillis;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
     private List<WithMillis<Message>> mList = new ArrayList<>();
+    private Map<WithMillis<Message>, Long> queue = new HashMap();
 
     private MessageAdapter mAdapter = new MessageAdapter(mList);
+    private Thread encryptionThread;
+    private Looper encryptionLooper;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -30,6 +38,7 @@ public class MainActivity extends AppCompatActivity {
         final RecyclerView recyclerView = findViewById(R.id.recyclerView);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         recyclerView.setAdapter(mAdapter);
+        createThread();
 
         //showWelcomeDialog();
     }
@@ -46,33 +55,84 @@ public class MainActivity extends AppCompatActivity {
 
     public void onPushBtnClick(View view) {
         Message message = Message.generate();
-        insert(new WithMillis<>(message));
+        insert(new WithMillis<>(message)); //вставка нового в адаптер без правої частини
     }
 
     @UiThread
-    public void insert(final WithMillis<Message> message) {
+    public void insert(final WithMillis<Message> message) { //вставка,  юай треда
         mList.add(message);
         mAdapter.notifyItemInserted(mList.size() - 1);
+        putInQueue(message);
 
         // TODO: Start processing the message (please use CipherUtil#encrypt(...)) here.
         //       After it has been processed, send it to the #update(...) method.
 
+        // -> нажимаем на кнопку -> получаем новый меседж, инсерт -> отправляем в очередь, засекаем время ...    обновляем меседж
+        //                                                                                           ->    обработка
+
         // How it should look for the end user? Uncomment if you want to see. Please note that
         // you should not use poor decor view to send messages to UI thread.
-        getWindow().getDecorView().postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                //message.value.cipherText = CipherUtil.encrypt(message.value.plainText);
-                CipherUtil.encrypt(message.value.plainText);
-                final Message messageNew = message.value.copy(message.value.cipherText);
-                final WithMillis<Message> messageNewWithMillis = new WithMillis<>(messageNew, CipherUtil.WORK_MILLIS);
-                update(messageNewWithMillis);
-            }
-        }, Long.parseLong(CipherUtil.encrypt(message.value.plainText)));
+ //       getWindow().getDecorView().postDelayed(new Runnable() {
+//            @Override
+//            public void run() {
+//                final Message messageNew = message.value.copy("sample :)");
+//                final WithMillis<Message> messageNewWithMillis = new WithMillis<>(messageNew, CipherUtil.WORK_MILLIS);
+//                update(messageNewWithMillis);
+//            }
+//        }, CipherUtil.WORK_MILLIS);
     }
 
+    private void putInQueue(final WithMillis<Message> message) {
+
+        queue.put(message, System.currentTimeMillis());
+        Log.d("ttt", "put");
+        new Handler(encryptionLooper).post(new Runnable() {
+            @Override
+            public void run() {
+                Log.d("ttt", "handler");
+                final Message messageNew = message.value.copy(CipherUtil.encrypt(message.value.plainText));
+                final long workMillis = System.currentTimeMillis() - queue.get(message);
+                final WithMillis<Message> messageNewWithMillis = new WithMillis<>(messageNew, workMillis);
+                new Handler(getMainLooper()).post(new Runnable() {
+                    @Override
+                    public void run() {
+                        getWindow().getDecorView().postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                update(messageNewWithMillis);
+                            }
+                        }, workMillis);
+                    }
+                });
+            }
+        });
+
+    }
+
+    public void createThread() {
+        Log.d("ttt", "createThread");
+        encryptionThread = new Thread() {
+            @Override
+            public void run() {
+                Log.d("ttt", "new thread");
+                Looper.prepare();
+                encryptionLooper = Looper.myLooper();
+                new Handler(encryptionLooper).post(new Runnable() {
+                    @Override
+                    public void run() {
+                        Log.d("ttt", "post to handler");
+                    }
+                });
+                Looper.loop();
+            }
+        };
+        encryptionThread.start();
+    }
+
+
     @UiThread
-    public void update(final WithMillis<Message> message) {
+    public void update(final WithMillis<Message> message) { // оновлення наявного меседжу в листі, оновлення юай
+
         for (int i = 0; i < mList.size(); i++) {
             if (mList.get(i).value.key.equals(message.value.key)) {
                 mList.set(i, message);
@@ -80,7 +140,6 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
         }
-
         throw new IllegalStateException();
     }
 
