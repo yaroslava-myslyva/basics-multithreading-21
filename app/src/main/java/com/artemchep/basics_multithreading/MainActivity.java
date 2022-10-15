@@ -62,17 +62,15 @@ public class MainActivity extends AppCompatActivity {
     public void insert(final WithMillis<Message> message) { //вставка,  юай треда
         mList.add(message);
         mAdapter.notifyItemInserted(mList.size() - 1);
-        putInQueue(message);
+        messageProcessing(message);
 
-        // TODO: Start processing the message (please use CipherUtil#encrypt(...)) here.
-        //       After it has been processed, send it to the #update(...) method.
 
         // -> нажимаем на кнопку -> получаем новый меседж, инсерт -> отправляем в очередь, засекаем время ...    обновляем меседж
         //                                                                                           ->    обработка
 
         // How it should look for the end user? Uncomment if you want to see. Please note that
         // you should not use poor decor view to send messages to UI thread.
- //       getWindow().getDecorView().postDelayed(new Runnable() {
+        //       getWindow().getDecorView().postDelayed(new Runnable() {
 //            @Override
 //            public void run() {
 //                final Message messageNew = message.value.copy("sample :)");
@@ -82,8 +80,7 @@ public class MainActivity extends AppCompatActivity {
 //        }, CipherUtil.WORK_MILLIS);
     }
 
-    private void putInQueue(final WithMillis<Message> message) {
-
+    private void messageProcessing(final WithMillis<Message> message) {
         queue.put(message, System.currentTimeMillis());
         Log.d("ttt", "put");
         new Handler(encryptionLooper).post(new Runnable() {
@@ -93,20 +90,14 @@ public class MainActivity extends AppCompatActivity {
                 final Message messageNew = message.value.copy(CipherUtil.encrypt(message.value.plainText));
                 final long workMillis = System.currentTimeMillis() - queue.get(message);
                 final WithMillis<Message> messageNewWithMillis = new WithMillis<>(messageNew, workMillis);
-                new Handler(getMainLooper()).post(new Runnable() {
+                getWindow().getDecorView().postDelayed(new Runnable() {
                     @Override
                     public void run() {
-                        getWindow().getDecorView().postDelayed(new Runnable() {
-                            @Override
-                            public void run() {
-                                update(messageNewWithMillis);
-                            }
-                        }, workMillis);
+                        update(messageNewWithMillis);
                     }
-                });
+                }, workMillis);
             }
         });
-
     }
 
     public void createThread() {
@@ -131,7 +122,7 @@ public class MainActivity extends AppCompatActivity {
 
 
     @UiThread
-    public void update(final WithMillis<Message> message) { // оновлення наявного меседжу в листі, оновлення юай
+    synchronized public void update(final WithMillis<Message> message) { // оновлення наявного меседжу в листі, оновлення юай
 
         for (int i = 0; i < mList.size(); i++) {
             if (mList.get(i).value.key.equals(message.value.key)) {
