@@ -3,6 +3,7 @@ package com.artemchep.basics_multithreading;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.View;
 
@@ -18,17 +19,18 @@ import com.artemchep.basics_multithreading.domain.WithMillis;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
     private List<WithMillis<Message>> mList = new ArrayList<>();
-    private Map<WithMillis<Message>, Long> queue = new HashMap();
-
+    private final List<Runnable> queue = new ArrayList<>();
+    volatile boolean isRunning = true;
     private MessageAdapter mAdapter = new MessageAdapter(mList);
-    private Thread encryptionThread;
-    private Looper encryptionLooper;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -38,9 +40,8 @@ public class MainActivity extends AppCompatActivity {
         final RecyclerView recyclerView = findViewById(R.id.recyclerView);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         recyclerView.setAdapter(mAdapter);
-        createThread();
 
-        //showWelcomeDialog();
+        showWelcomeDialog();
     }
 
     private void showWelcomeDialog() {
@@ -55,18 +56,59 @@ public class MainActivity extends AppCompatActivity {
 
     public void onPushBtnClick(View view) {
         Message message = Message.generate();
-        insert(new WithMillis<>(message)); //вставка нового в адаптер без правої частини
+        insert(new WithMillis<>(message, SystemClock.elapsedRealtime()));
     }
 
     @UiThread
-    public void insert(final WithMillis<Message> message) { //вставка,  юай треда
+    public void insert(final WithMillis<Message> message) {
         mList.add(message);
         mAdapter.notifyItemInserted(mList.size() - 1);
-        messageProcessing(message);
 
+        Thread queueThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                synchronized (queue) {
+                    queue.add(new Runnable() {
+                        @Override
+                        public void run() {
+                            final Message messageNew = message.value.copy(CipherUtil.encrypt(message.value.plainText));
+                            final long workMillis = SystemClock.elapsedRealtime() - message.elapsedMillis;
+                            final WithMillis<Message> messageNewWithMillis = new WithMillis<>(messageNew, workMillis);
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    update(messageNewWithMillis);
+                                }
+                            });
+                        }
+                    });
+                    if (!isRunning) {
+                        queue.notifyAll();
+                        isRunning = true;
+                    }
+                }
+            }
+        });
+        queueThread.start();
 
-        // -> нажимаем на кнопку -> получаем новый меседж, инсерт -> отправляем в очередь, засекаем время ...    обновляем меседж
-        //                                                                                           ->    обработка
+        Thread encryptionThread = new Thread() {
+            @Override
+            public void run() {
+                synchronized (queue) {
+                    while (!queue.isEmpty()) {
+                        queue.get(0).run();
+                        queue.remove(0);
+                    }
+                    try {
+                        queue.wait();
+                        isRunning = false;
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        };
+        encryptionThread.start();
 
         // How it should look for the end user? Uncomment if you want to see. Please note that
         // you should not use poor decor view to send messages to UI thread.
@@ -80,50 +122,9 @@ public class MainActivity extends AppCompatActivity {
 //        }, CipherUtil.WORK_MILLIS);
     }
 
-    private void messageProcessing(final WithMillis<Message> message) {
-        queue.put(message, System.currentTimeMillis());
-        Log.d("ttt", "put");
-        new Handler(encryptionLooper).post(new Runnable() {
-            @Override
-            public void run() {
-                Log.d("ttt", "handler");
-                final Message messageNew = message.value.copy(CipherUtil.encrypt(message.value.plainText));
-                final long workMillis = System.currentTimeMillis() - queue.get(message);
-                final WithMillis<Message> messageNewWithMillis = new WithMillis<>(messageNew, workMillis);
-                getWindow().getDecorView().postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        update(messageNewWithMillis);
-                    }
-                }, workMillis);
-            }
-        });
-    }
-
-    public void createThread() {
-        Log.d("ttt", "createThread");
-        encryptionThread = new Thread() {
-            @Override
-            public void run() {
-                Log.d("ttt", "new thread");
-                Looper.prepare();
-                encryptionLooper = Looper.myLooper();
-                new Handler(encryptionLooper).post(new Runnable() {
-                    @Override
-                    public void run() {
-                        Log.d("ttt", "post to handler");
-                    }
-                });
-                Looper.loop();
-            }
-        };
-        encryptionThread.start();
-    }
-
 
     @UiThread
-    synchronized public void update(final WithMillis<Message> message) { // оновлення наявного меседжу в листі, оновлення юай
-
+    public void update(final WithMillis<Message> message) {
         for (int i = 0; i < mList.size(); i++) {
             if (mList.get(i).value.key.equals(message.value.key)) {
                 mList.set(i, message);
